@@ -1,10 +1,14 @@
+from abc import ABC
 from enum import Enum
 from functools import cached_property
 from math import prod
 from .constants import C_0, EPS_0, MU_0, PI
 from .derivatives import _calc_D_matrices
 from .pml import _calc_S_matrices
+
+import numpy as np
 import scipy.sparse as sp
+
 from tidy3d import Simulation as Tidy3dSim
 from pyMKL import pardisoSolver
 
@@ -25,10 +29,9 @@ class SimulationType(Enum):
 #             raise ValueError
 
 # Simple FDFD simu (no interest in mu right now)
-# TODO: Refactor with a SimulationFdfd class (dataclass)
 # TODO: Add a normalization system to formate unis and make EPS0 correct
-# TODO: Allow other solver than pyMKL to be used
-class SimulationFdfd_TE:
+# Transform to a dataclass ?
+class SimulationFdfd(ABC):
     def __init__(self, eps, dl, npml, omega=None, wavelength=None):
         if omega is None and wavelength is None:
             raise ValueError("At least one of 'omega' or 'wavelength' must be provided.")
@@ -59,6 +62,26 @@ class SimulationFdfd_TE:
                 'SDyf': Syf.dot(Dyf),
                 'SDyb': Syb.dot(Dyb)}
 
+    # TODO: Verify sign
+    @cached_property
+    def b(self):
+        return -1.0j * self.omega * self.source.flatten()
+
+    # TODO: Allow other solver than pyMKL to be used
+    def solve(self, source):
+        self.source = source
+
+        pSolve = pardisoSolver(self.A.tocsr(), mtype=13)
+        pSolve.factor()
+        x = pSolve.solve(self.b)
+        pSolve.clear()
+        Field_zF = x
+        # self.EzF = spsolve(self.A, self.b)
+
+        return Field_zF.reshape(self.shape)
+
+
+class SimulationFdfd_TE(SimulationFdfd):
     @cached_property
     def sp_eps_zz(self):
         return sp.diags(self.eps.flatten(),
@@ -68,28 +91,69 @@ class SimulationFdfd_TE:
 
     @cached_property
     def A(self):
-        # D = (1 / MU_0 * self.D_ops.get('SDxf').dot(self.D_ops.get('SDxb'))
-        #      + 1 / MU_0 * self.D_ops.get('SDyf').dot(self.D_ops.get('SDyb')))
-        # G = self.omega ** 2 * EPS_0 * self.sp_eps_zz
-        # return D + G
-        D = (- 1 / MU_0 * self.D_ops["SDxf"] @ self.D_ops["SDxb"]
-             - 1 / MU_0 * self.D_ops["SDyf"] @ self.D_ops["SDyb"])
-        G = - self.omega ** 2 * EPS_0 * self.sp_eps_zz
+        D = (1 / MU_0 * self.D_ops.get('SDxf').dot(self.D_ops.get('SDxb'))
+             + 1 / MU_0 * self.D_ops.get('SDyf').dot(self.D_ops.get('SDyb')))
+        G = self.omega ** 2 * EPS_0 * self.sp_eps_zz
         return D + G
 
-
+    # TODO: Verify sign
     @cached_property
     def b(self):
-        return 1.0j * self.omega * self.source.flatten()
+        return -1.0j * self.omega * self.source.flatten()
 
+    # # TODO: Allow other solver than pyMKL to be used
+    # def solve(self, source):
+    #     self.source = source
+
+    #     pSolve = pardisoSolver(self.A.tocsr(), mtype=13)
+    #     pSolve.factor()
+    #     x = pSolve.solve(self.b)
+    #     pSolve.clear()
+    #     self.EzF = x
+    #     # self.EzF = spsolve(self.A, self.b)
+
+    #     return self.EzF.reshape(self.shape)
     def solve(self, source):
-        self.source = source
+        self.Ez = super().solve(source)
+        return self.Ez
 
-        pSolve = pardisoSolver(self.A.tocsr(), mtype=13)
-        pSolve.factor()
-        x = pSolve.solve(self.b)
-        pSolve.clear()
-        self.EzF = x
-        # self.EzF = spsolve(self.A, self.b)
 
-        return self.EzF.reshape(self.shape)
+class SimulationFdfd_TM(SimulationFdfd):
+    @cached_property
+    def sp_inv_eps_xx(self):
+        eps_xx = 1 / 2 * (self.eps + np.roll(self.eps, axis=1, shift=1))
+        return sp.diags(np.reciprocal(eps_xx.flatten()),
+                        offsets=0,
+                        shape=(self.Ntot, self.Ntot),
+                        dtype=complex)
+
+    @cached_property
+    def sp_inv_eps_yy(self):
+        eps_yy = 1 / 2 * (self.eps + np.roll(self.eps, axis=0, shift=1))
+        return sp.diags(np.reciprocal(eps_yy.flatten()),
+                        offsets=0,
+                        shape=(self.Ntot, self.Ntot),
+                        dtype=complex)
+
+    @cached_property
+    def A(self):
+        D = (1 / EPS_0 * self.D_ops.get('SDxf').dot(self.sp_inv_eps_yy).dot(self.D_ops.get('SDxb'))
+             + 1 / EPS_0 * self.D_ops.get('SDyf').dot(self.sp_inv_eps_xx).dot(self.D_ops.get('SDyb')))
+        G = self.omega ** 2 * MU_0 * self.sp_eps_zz
+        return D + G
+
+    # # TODO: Allow other solver than pyMKL to be used
+    # def solve(self, source):
+    #     self.source = source
+
+    #     pSolve = pardisoSolver(self.A.tocsr(), mtype=13)
+    #     pSolve.factor()
+    #     x = pSolve.solve(self.b)
+    #     pSolve.clear()
+    #     self.EzF = x
+    #     # self.EzF = spsolve(self.A, self.b)
+
+    #     return self.EzF.reshape(self.shape)
+    def solve(self, source):
+        self.Hz = super().solve(source)
+        return self.Hz
