@@ -2,9 +2,9 @@ from abc import ABC
 from enum import Enum
 from functools import cached_property
 from math import prod
-from .constants import C_0, EPS_0, MU_0, PI
-from .derivatives import _calc_D_matrices
-from .pml import _calc_S_matrices
+from ..constants import C_0, EPS_0, MU_0, PI
+from ..derivatives import _calc_D_matrices
+from ..pml import _calc_S_matrices
 
 import numpy as np
 import scipy.sparse as sp
