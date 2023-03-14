@@ -1,16 +1,19 @@
 from abc import ABC
 from enum import Enum
+from typing import Literal, Optional
 from functools import cached_property
 from math import prod
-from ..constants import C_0, EPS_0, MU_0, PI
-from ..derivatives import _calc_D_matrices
-from ..pml import _calc_S_matrices
 
 import numpy as np
-import scipy.sparse as sp
+from pydantic import validator, root_validator, Extra
 
-# from tidy3d import Simulation as Tidy3dSim
-from pyMKL import pardisoSolver
+
+from tidy3d import Simulation as Tidy3dSim
+
+from ..constants import C_0
+
+
+DUMMY_VALUE = -1
 
 
 class SimulationType(Enum):
@@ -18,112 +21,34 @@ class SimulationType(Enum):
     FDFD = "fdfd"
 
 
-# class Simulation(Tidy3dSim):
+class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
+    run_time: float = DUMMY_VALUE  # No runtime required in FDFD
+    polarization: Literal['TE', 'TM']
+    freq: Optional[float] = None
+    wavelength: Optional[float] = None
+    tfsf: bool = True
 
-#     def run(type: SimulationType, *args, **kwargs):
-#         if type == SimulationType.FDTD:
-#             raise NotImplementedError
-#         elif type == SimulationType.FDFD:
-#             print("Lessss go")
-#         else:
-#             raise ValueError
+    @root_validator(pre=False)
+    def verify_freq(cls, values: dict):
+        # Nothing is given
+        if list(values.values()).count(None) == 2:
+            raise ValueError("Provide either 'freq' or 'wavelength'.")
+        # Both given
+        elif list(values.values()).count(None) == 0:
+            raise ValueError("Provide only one field: 'freq' or 'wavelength'.")
 
-# Simple FDFD simu (no interest in mu right now)
-# TODO: Add a normalization system to formate unis and make EPS0 correct
-# Transform to a dataclass ?
-class SimulationFdfd(ABC):
-    def __init__(self, eps, dl, npml, omega=None, wavelength=None):
-        if omega is None and wavelength is None:
-            raise ValueError("At least one of 'omega' or 'wavelength' must be provided.")
-        elif omega is not None and wavelength is not None:
-            raise ValueError("Only one of 'omega' or 'wavelength' should be provided.")
-        elif omega is not None:
-            self.omega = omega
-            self.wavelength = 2 * PI * C_0 / omega
+        if values['freq'] is None:
+            values['freq'] = C_0 / values['wavelength']
         else:
-            self.wavelength = wavelength
-            self.omega = 2 * PI * C_0 / wavelength
+            values['wavelength'] = C_0 / values['freq']
 
-        self.eps = eps
-        self.dl = dl
-        self.npml = npml
+        return values
 
-        self.shape = eps.shape
-        self.Nx, self.Ny = eps.shape
-        self.N = prod(eps.shape)
+    def run(self, wavelength):
+        if self.grid.num_cells.count(1) != 1:
+            raise NotImplementedError("Actually, only 2D FDFD is supported!")
 
-    @cached_property
-    def D_ops(self):
-        Dxf, Dxb, Dyf, Dyb = _calc_D_matrices([self.dl] * 2, self.shape)
-        Sxf, Sxb, Syf, Syb = _calc_S_matrices([self.dl] * 2, self.shape,
-                                              self.npml, self.omega)
-        return {'SDxf': Sxf.dot(Dxf),
-                'SDxb': Sxb.dot(Dxb),
-                'SDyf': Syf.dot(Dyf),
-                'SDyb': Syb.dot(Dyb)}
+    # def _build_eps():
 
-    @cached_property
-    def b(self):
-        return -1.0j * self.omega * self.source.flatten()
+    # def _compute_source():
 
-    # TODO: Allow other solver than pyMKL to be used
-    def solve(self, source):
-        self.source = source
-
-        pSolve = pardisoSolver(self.A.tocsr(), mtype=13)
-        pSolve.factor()
-        x = pSolve.solve(self.b)
-        pSolve.clear()
-        Field_zF = x
-        # self.EzF = spsolve(self.A, self.b)
-
-        return Field_zF.reshape(self.shape)
-
-
-class SimulationFdfd_TE(SimulationFdfd):
-    @cached_property
-    def sp_eps_zz(self):
-        return sp.diags(self.eps.flatten(),
-                        offsets=0,
-                        shape=(self.N, self.N),
-                        dtype=complex)
-
-    @cached_property
-    def A(self):
-        D = (1 / MU_0 * self.D_ops.get('SDxf').dot(self.D_ops.get('SDxb'))
-             + 1 / MU_0 * self.D_ops.get('SDyf').dot(self.D_ops.get('SDyb')))
-        G = self.omega ** 2 * EPS_0 * self.sp_eps_zz
-        return D + G
-
-    def solve(self, source):
-        self.Ez = super().solve(source)
-        return self.Ez
-
-
-class SimulationFdfd_TM(SimulationFdfd):
-    @cached_property
-    def sp_inv_eps_xx(self):
-        eps_xx = 1 / 2 * (self.eps + np.roll(self.eps, axis=1, shift=1))
-        return sp.diags(np.reciprocal(eps_xx.flatten()),
-                        offsets=0,
-                        shape=(self.N, self.N),
-                        dtype=complex)
-
-    @cached_property
-    def sp_inv_eps_yy(self):
-        eps_yy = 1 / 2 * (self.eps + np.roll(self.eps, axis=0, shift=1))
-        return sp.diags(np.reciprocal(eps_yy.flatten()),
-                        offsets=0,
-                        shape=(self.N, self.N),
-                        dtype=complex)
-
-    @cached_property
-    def A(self):
-        D = (1 / EPS_0 * self.D_ops.get('SDxf').dot(self.sp_inv_eps_yy).dot(self.D_ops.get('SDxb'))
-             + 1 / EPS_0 * self.D_ops.get('SDyf').dot(self.sp_inv_eps_xx).dot(self.D_ops.get('SDyb')))
-        G = self.omega ** 2 * MU_0 * sp.eye(m=self.N, dtype=complex)
-        return D + G
-
-    def solve(self, source):
-        self.Hz = super().solve(source)
-        return self.Hz

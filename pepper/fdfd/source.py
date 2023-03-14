@@ -8,6 +8,7 @@ from ..constants import C_0
 
 
 DUMMY_FACTOR = 0.1
+DUMMY_SRC_CLASS = GaussianPulse
 
 
 class SimulationType(Enum):
@@ -15,7 +16,8 @@ class SimulationType(Enum):
     FDFD = "fdfd"
 
 
-class DummySource(GaussianPulse):
+# TODO: Do we really need to use the freq0 for a source?
+class DummySource(DUMMY_SRC_CLASS):
     def __init__(self, freq):
         super(DummySource, self).__init__(
             freq0=freq,
