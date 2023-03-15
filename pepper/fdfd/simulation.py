@@ -1,7 +1,7 @@
 from abc import ABC
 from enum import Enum
-from typing import Literal, Optional
 from functools import cached_property
+from typing import Literal, Optional
 from math import prod
 
 import numpy as np
@@ -10,6 +10,7 @@ from pydantic import validator, root_validator, Extra
 
 from tidy3d import Simulation as Tidy3dSim
 
+from ..cache import cached_property
 from ..constants import C_0
 
 
@@ -28,13 +29,16 @@ class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
     wavelength: Optional[float] = None
     tfsf: bool = True
 
+    src_inds: Optional[list] = None
+
     @root_validator(pre=False)
     def verify_freq(cls, values: dict):
         # Nothing is given
-        if list(values.values()).count(None) == 2:
+        # if list(values.values()).count(None) == 2:
+        if values['freq'] is None and values['wavelength'] is None:
             raise ValueError("Provide either 'freq' or 'wavelength'.")
         # Both given
-        elif list(values.values()).count(None) == 0:
+        if values['freq'] is not None and values['wavelength'] is not None:
             raise ValueError("Provide only one field: 'freq' or 'wavelength'.")
 
         if values['freq'] is None:
@@ -48,7 +52,18 @@ class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
         if self.grid.num_cells.count(1) != 1:
             raise NotImplementedError("Actually, only 2D FDFD is supported!")
 
-    # def _build_eps():
+    @cached_property
+    def eps(self):
+        eps_temp = []
+        for field in ['Ex', 'Ey', 'Ez']:
+            eps = self.epsilon_on_grid(self.grid, coord_key=field).values
+            # TODO: Make it 3D compatible
+            eps_temp.append(eps.squeeze())
+        return eps_temp
 
-    # def _compute_source():
-
+    # @cached_property
+    # def source(self):
+    #     arr_source = np.zeros(self.eps[0].shape, dtype=complex)
+    #     for src in self.sources:
+    #         print(src)
+    #     return arr_source
