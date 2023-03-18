@@ -22,7 +22,8 @@ class SimulationType(Enum):
 # TODO: Add a normalization system to formate unis and make EPS0 correct
 # Transform to a dataclass ?
 class BaseSimulationFdfd(ABC):
-    def __init__(self, eps, dl, npml, omega=None, wavelength=None):
+    def __init__(self, eps, dl, npml, omega=None, wavelength=None,
+                 periodicity_correction=[None, None]):
         if omega is None and wavelength is None:
             raise ValueError("At least one of 'omega' or 'wavelength' must be provided.")
         elif omega is not None and wavelength is not None:
@@ -42,27 +43,38 @@ class BaseSimulationFdfd(ABC):
         self.Nx, self.Ny = eps.shape
         self.N = prod(eps.shape)
 
+        self.periodicity_correction = periodicity_correction
+
     @cached_property
     def D_ops(self):
-        Dxf, Dxb, Dyf, Dyb = _calc_D_matrices([self.dl] * 2, self.shape)
+        # We need to keep the value of D_ops to calculate the fields Fx, Fy
+        Dxf, Dxb, Dyf, Dyb = _calc_D_matrices([self.dl] * 2, self.shape,
+                                              self.periodicity_correction)
         Sxf, Sxb, Syf, Syb = _calc_S_matrices([self.dl] * 2, self.shape,
                                               self.npml, self.omega)
-        return {'SDxf': Sxf.dot(Dxf),
-                'SDxb': Sxb.dot(Dxb),
-                'SDyf': Syf.dot(Dyf),
-                'SDyb': Syb.dot(Dyb)}
+        return {
+            'SDxf': Sxf.dot(Dxf),
+            'SDxb': Sxb.dot(Dxb),
+            'SDyf': Syf.dot(Dyf),
+            'SDyb': Syb.dot(Dyb),
+            'Dxf': Dxf,
+            'Dxb': Dxb,
+            'Dyf': Dyf,
+            'Dyb': Dyb,
+        }
 
     @cached_property
     def b(self):
         return -1.0j * self.omega * self.source.flatten()
 
     # TODO: Allow other solver than pyMKL to be used
-    def solve(self, source):
-        self.source = source
+    def solve(self, source=None):
+        if source is None:
+            source = self.b
 
         pSolve = pardisoSolver(self.A.tocsr(), mtype=13)
         pSolve.factor()
-        x = pSolve.solve(self.b)
+        x = pSolve.solve(source)
         pSolve.clear()
         Field_zF = x
         # self.EzF = spsolve(self.A, self.b)

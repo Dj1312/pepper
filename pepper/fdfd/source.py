@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Optional, List
 from pydantic import create_model
 
 from tidy3d import GaussianPulse
@@ -29,15 +30,15 @@ class DummySource(DUMMY_SRC_CLASS):
 
 
 def _tidy3d_fdfd_monkey_patch(Tidy3DClass):
-    def fun_add_fields(sim_freq=None, sim_wl=None, **kwds):
-        if sim_freq is None and sim_wl is None:
-            raise ValueError("Provide either 'sim_freq' or 'sim_wl'.")
-        elif sim_freq is not None and sim_wl is not None:
-            raise ValueError("Provide only one field: 'sim_freq' or 'sim_wl'.")
-        elif sim_freq is None:
-            sim_freq = C_0 / sim_wl
+    def fun_add_fields(freq0=None, wavelength=None, **kwds):
+        if freq0 is None and wavelength is None:
+            raise ValueError("Provide either 'freq0' or 'wavelength'.")
+        elif freq0 is not None and wavelength is not None:
+            raise ValueError("Provide only one field: 'freq0' or 'wavelength'.")
+        elif freq0 is None:
+            freq0 = C_0 / wavelength
         else:
-            sim_wl = C_0 / sim_freq
+            wavelength = C_0 / freq0
 
         additional_fdfd_fields = {
             'amplitude': 1.0,
@@ -47,9 +48,9 @@ def _tidy3d_fdfd_monkey_patch(Tidy3DClass):
         model = create_model(
             Tidy3DClass.__name__,
             __base__=Tidy3DClass,
-            sim_freq=sim_freq,
-            sim_wl=sim_wl,
-            source_time=DummySource(sim_freq),
+            freq0=freq0,
+            wavelength=wavelength,
+            source_time=DummySource(freq0),
             simulation_type=SimulationType.FDFD,
             source_initialization=dict_src_init,  # [Tidy3DClass.__name__],
             **additional_fdfd_fields,

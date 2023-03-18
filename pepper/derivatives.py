@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.sparse as sp
-from typing import NewType, Tuple
+from typing import NewType, Optional, Tuple
 # from numpy.typing import NDArray
 
 
@@ -10,17 +10,31 @@ SSPArray = NewType('SSPArray', sp.spmatrix)
 
 def _calc_D_matrices(
         dl: Tuple[float, float],
-        shape: Tuple[int, int]) -> Tuple[SSPArray, SSPArray, SSPArray, SSPArray]:
+        shape: Tuple[int, int],
+        periodicity_correction: Tuple[Optional[float], Optional[float]]
+) -> Tuple[SSPArray, SSPArray, SSPArray, SSPArray]:
     """ All derivatives operators for both directions and schemes """
     # TODO: Explicit
     # Kind of cheat to obtain correct result :
     # + If the result is fully periodic, i.e. F(z) = F(z + Nz*dz), ok !
     # (Can be viewed as infinite on this particular direction)
     # + If not, the periodic result will vanish in PML F(z) = F(z + Nz*dz) = 0
-    _Dxf = _calc_Dxf(dl, shape, periodic_phase=0.0)
-    _Dxb = _calc_Dxb(dl, shape, periodic_phase=0.0)
-    _Dyf = _calc_Dyf(dl, shape, periodic_phase=0.0)
-    _Dyb = _calc_Dyb(dl, shape, periodic_phase=0.0)
+
+    # TODO: Do it cleaner..
+    if periodicity_correction[0] is None:
+        _Dxf = _calc_Dxf(dl, shape, periodic_phase=0.0)
+        _Dxb = _calc_Dxb(dl, shape, periodic_phase=0.0)
+    else:
+        _Dxf = _calc_Dxf(dl, shape, periodic_phase=periodicity_correction[0])
+        _Dxb = _calc_Dxb(dl, shape, periodic_phase=periodicity_correction[0])
+
+    if periodicity_correction[1] is None:
+        _Dyf = _calc_Dyf(dl, shape, periodic_phase=0.0)
+        _Dyb = _calc_Dyb(dl, shape, periodic_phase=0.0)
+    else:
+        _Dyf = _calc_Dyf(dl, shape, periodic_phase=periodicity_correction[1])
+        _Dyb = _calc_Dyb(dl, shape, periodic_phase=periodicity_correction[1])
+
     # _Dxf = _calc_Dxf(dl, shape, periodic_phase=None)
     # _Dxb = _calc_Dxb(dl, shape, periodic_phase=None)
     # _Dyf = _calc_Dyf(dl, shape, periodic_phase=None)

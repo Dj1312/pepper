@@ -17,6 +17,7 @@ class SimulationType(Enum):
     FDTD = "fdtd"
     FDFD = "fdfd"
 
+
 # Simple FDFD simu (no interest in mu right now)
 # TODO: Add a normalization system to formate unis and make EPS0 correct
 # Transform to a dataclass ?
