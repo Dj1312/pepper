@@ -1,4 +1,4 @@
-from .interface_tidy3d import TidySimulationFdfd
+# from .interface_tidy3d import TidySimulationFdfd
 from .material import material_library, material_refs
 
 from .fdfd.simulation import SimulationFdfd

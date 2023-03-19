@@ -1,28 +1,46 @@
 import numpy as np
 
+from .simulation import SimulationFdfd
+
 
 # TODO: Find a way to store the value of the source
-def planewave_init(self, sim):
+def planewave_init(src, sim: SimulationFdfd):
     source_value = np.zeros(sim.grid.num_cells, dtype=complex)
-    inj_idx = self.injection_axis
-    indices = sim.grid.discretize_inds(self)
+    inj_idx = src.injection_axis
+    indices = sim.grid.discretize_inds(src)
 
     # Planewave propagate along ALL the window by definition
-
-    # TODO: Use the function move or reshape to put the axis to not modify in last position
-    # if inj_idx == 0:
-    #     source_value[indices[0],:,:] = self.amplitude * np.exp(1j * self.phase)
-    # elif inj_idx == 1:
-    #     source_value[:,indices[1],:] = self.amplitude * np.exp(1j * self.phase)
-    # elif inj_idx == 2:
-    #     source_value[:,:,indices[2]] = self.amplitude * np.exp(1j * self.phase)
     source_value = np.moveaxis(source_value, source=inj_idx, destination=-1)
-    source_value[:,:,indices[inj_idx]] = self.amplitude * np.exp(1j * self.phase)
+    source_value[:,:,indices[inj_idx]] = src.amplitude * np.exp(1j * src.phase)
     source_value = np.moveaxis(source_value, source=-1, destination=inj_idx)
 
-    return source_value
+    if sim.tfsf is True:
+        return qaaq_source(source_value, sim)
+    else:
+        return source_value
 
 
 # dict_src_init = {'PlaneWave': planewave_init}
 default_init = planewave_init
 dict_src_init = default_init
+
+
+def qaaq_source(src, src_value, sim: SimulationFdfd):
+    mask = np.zeros_like(src_value)
+
+    if sim.polarization == 'TE':
+        coords_x = sim.grid.yee.E.z.x
+        coords_y = sim.grid.yee.E.z.y
+    elif sim.polarization == 'TM':
+        coords_x = sim.grid.yee.H.z.x
+        coords_y = sim.grid.yee.H.z.y
+    else:
+        raise NotImplementedError("Actually, only 2D is supported.")
+
+    #TODO: What if the Medium has a 3 length ?
+    #TODO: Finish the source
+    # 'intersecting_media' returns a set -> We use an iterator to access the value
+    eps = next(iter(sim.intersecting_media(src, sim.structures))).permittivity
+
+    f = np.exp(1.j * k_x * coords_x) * np.exp(1.j * k_y * coords_y)
+

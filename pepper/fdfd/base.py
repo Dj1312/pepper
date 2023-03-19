@@ -23,7 +23,7 @@ class SimulationType(Enum):
 # Transform to a dataclass ?
 class BaseSimulationFdfd(ABC):
     def __init__(self, eps, dl, npml, omega=None, wavelength=None,
-                 periodicity_correction=[None, None]):
+                 bloch_conditions=[None, None]):
         if omega is None and wavelength is None:
             raise ValueError("At least one of 'omega' or 'wavelength' must be provided.")
         elif omega is not None and wavelength is not None:
@@ -43,14 +43,14 @@ class BaseSimulationFdfd(ABC):
         self.Nx, self.Ny = eps.shape
         self.N = prod(eps.shape)
 
-        self.periodicity_correction = periodicity_correction
+        self.bloch_conditions = bloch_conditions
 
     @cached_property
     def D_ops(self):
         # We need to keep the value of D_ops to calculate the fields Fx, Fy
-        Dxf, Dxb, Dyf, Dyb = _calc_D_matrices([self.dl] * 2, self.shape,
-                                              self.periodicity_correction)
-        Sxf, Sxb, Syf, Syb = _calc_S_matrices([self.dl] * 2, self.shape,
+        Dxf, Dxb, Dyf, Dyb = _calc_D_matrices(self.dl, self.shape,
+                                              self.bloch_conditions)
+        Sxf, Sxb, Syf, Syb = _calc_S_matrices(self.dl, self.shape,
                                               self.npml, self.omega)
         return {
             'SDxf': Sxf.dot(Dxf),

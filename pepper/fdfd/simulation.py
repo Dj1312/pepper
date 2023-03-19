@@ -1,9 +1,9 @@
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 # from pydantic.dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
-from typing import Literal, Optional, Tuple
+from typing import Any, Literal, Optional, Tuple, Union
 from math import prod
 
 import numpy as np
@@ -19,6 +19,7 @@ from ..constants import C_0, PI
 
 
 DUMMY_VALUE = -1
+PMLLikeBoundary = [td_bnd.PML, td_bnd.StablePML, td_bnd.Absorber]
 
 
 class SimulationType(Enum):
@@ -28,15 +29,18 @@ class SimulationType(Enum):
 
 @dataclass
 class ParamsHandlerFdfd:
-    eps: Optional[np.ndarray] = None
-    dl: Optional[Tuple[float, float]] = None
-    npml: Optional[Tuple[int, int]] = None
+    eps: np.ndarray = None
+    dl: Tuple[float, ...] = ()
+    npml: Tuple[int, ...] = ()
     omega: float = None
     wavelength: float = None
-    periodicity_correction: Optional[Tuple[float, float]] = None
+    bloch_conditions: Tuple[Union[float, None], ...] = ()
 
 
-PMLLikeBoundary = [td_bnd.PML, td_bnd.StablePML, td_bnd.Absorber]
+# The Handler will take care of the FDFD sim: params + Sim itself
+class FdfdHandler:
+    FdfdSim: Union[Any, BaseSimulationFdfd] = None
+    params: ParamsHandlerFdfd = ParamsHandlerFdfd()
 
 
 class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
@@ -46,13 +50,10 @@ class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
     tfsf: bool = True
 
     # Internal
-    params_sim_fdfd: ParamsHandlerFdfd = ParamsHandlerFdfd()
+    handler: FdfdHandler = FdfdHandler()
     freq0: Optional[float] = None
     wavelength: Optional[float] = None
-    sim_obj: Optional[BaseSimulationFdfd] = None
-    bloch_conditions: Optional[
-        tuple[Optional[float], Optional[float], Optional[float],]
-    ] = None
+
 
     # @validator('sources', pre=False)
     # def verify_sources_2D(cls, v):
@@ -63,17 +64,18 @@ class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
     #     if idx0_src.count(idx0_eps) != len(idx0_src):
     #         raise ValueError("A source is not defined on 2D.")
 
+
     @root_validator(pre=False)
     def verify_sources(cls, values: dict):
         wls = [src.wavelength for src in values.get('sources')]
         if len(wls) > 1 and not all(wl == wls[0] for wl in wls):
             raise ValueError("Not all sources are defined with the same "
                              + "frequency of wavelength.")
-        values['wavelength'] = wls[0]
         freq0 = values.get('sources')[0].freq0
         values['freq0'] = freq0
-        values['params_sim_fdfd'].wavelength = wls[0]
-        print(values['params_sim_fdfd'])
+
+        values['wavelength'] = wls[0]
+        values['handler'].params.wavelength = wls[0]
 
         # # Source good -> Create sim_obj
         # omega = 2 * PI * C_0
@@ -93,39 +95,42 @@ class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
                 )
             else:
                 bloch_phase.append(None)
-        values['bloch_conditions'] = bloch_phase
+        values['handler'].params.bloch_conditions = tuple(bloch_phase)
         return values
 
-    @root_validator(pre=False)
-    def verify_sim_obj(cls, values: dict):
-        if values['polarization'] == 'TE':
-            sim = SimulationFdfd_TE
-        elif values['polarization'] == 'TM':
-            sim = SimulationFdfd_TM
-        values['sim_obj'] = sim  # sim_obj
-        return values
+    # @root_validator(pre=False)
+    # def verify_sim_obj(cls, values: dict):
+    #     if values['polarization'] == 'TE':
+    #         values['handler'].SimClass = SimulationFdfd_TE
+    #     elif values['polarization'] == 'TM':
+    #         values['handler'].SimClass = SimulationFdfd_TM
+    #     return values
 
-    @root_validator(pre=False)
-    def test_validator(cls, values: dict):
-        print('As')
-        # values['grid']
-        print('Good')
-        return values
+    def post_validation(self):
+        params = self.handler.params
 
-    @cached_property
-    def sim(self):
-        return self.sim_obj(
-            eps=self.eps[-1].squeeze(),
-            dl=[_grid.dl for _grid in [self.grid_spec.grid_x,self.grid_spec.grid_y]],
-            npml=[
-                self.boundary_spec[axis].minus.num_layers if self.boundary_spec[axis] in PMLLikeBoundary else 0 for axis in 'xy'
-            ],
-            omega=2 * PI * self.wavelength,
-            periodicity_correction=self.bloch_conditions[:-1]
-        )
+        # Define all the params
+        params.eps = self.eps[-1].squeeze()
 
-    def test_func(self):
-        self.freq0 = 12
+        params.dl = *(
+            _grid.dl for _grid in [self.grid_spec.grid_x,self.grid_spec.grid_y]
+        ),
+        params.npml = *(
+            self.boundary_spec[axis].minus.num_layers
+            if any(isinstance(self.boundary_spec[axis].minus, bnd) for bnd in PMLLikeBoundary)
+            else 0 for axis in 'xy'
+        ),
+        if self.polarization == 'TE':
+            Sim = SimulationFdfd_TE
+        elif self.polarization == 'TM':
+            Sim = SimulationFdfd_TM
+
+        self.handler.FdfdSim = Sim(**asdict(params))
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.post_validation()
+
 
     def run(self, wavelength):
         if self.grid.num_cells.count(1) != 1:
@@ -146,7 +151,7 @@ class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
         arr_source = []  # np.zeros(self.eps[0].shape, dtype=complex)
         for src in self.sources:
             src_initialized = src.source_initialization(self)
-            if len(src_initialized) > 2 and src_initialized.count(1) != 1:
+            if src_initialized.ndim > 2 and src_initialized.shape.count(1) != 1:
                 raise ValueError("A source is not 2D.")
             arr_source.append(src_initialized)
             # arr_source += src.source_initialization(self)
