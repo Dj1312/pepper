@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Optional, List
 from pydantic import create_model
 
 from tidy3d import GaussianPulse
@@ -50,12 +49,13 @@ def _tidy3d_fdfd_monkey_patch(Tidy3DClass):
             __base__=Tidy3DClass,
             freq0=freq0,
             wavelength=wavelength,
-            source_time=DummySource(freq0),
             simulation_type=SimulationType.FDFD,
             source_initialization=dict_src_init,  # [Tidy3DClass.__name__],
             **additional_fdfd_fields,
         )
-        return model(**kwds)
+        # used to solve the issue with the TypeError on 3.9.X
+        # 'TypeError: Subscripted generics cannot be used with class and instance checks'
+        return model(source_time=DummySource(freq0), **kwds)
     return fun_add_fields
 
 
