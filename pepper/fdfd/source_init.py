@@ -12,21 +12,21 @@ import matplotlib.pyplot as plt
 
 # TODO: Find a way to store the value of the source
 def planewave_init(src, sim: SimulationFdfd):
-    source_value = np.zeros(sim.grid.num_cells, dtype=complex)
-    inj_idx = src.injection_axis
-    indices = sim.grid.discretize_inds(src)
+    # source_value = np.zeros(sim.grid.num_cells, dtype=complex)
+    # inj_idx = src.injection_axis
+    # indices = sim.grid.discretize_inds(src)
 
-    # Planewave propagate along ALL the window by definition
-    fill_along_axis(
-        source_value,
-        value=src.amplitude * np.exp(1j * src.phase),
-        idx=indices[inj_idx], axis=inj_idx
-    )
+    # # Planewave propagate along ALL the window by definition
+    # fill_along_axis(
+    #     source_value,
+    #     value=src.amplitude * np.exp(1j * src.phase),
+    #     idx=indices[inj_idx], axis=inj_idx
+    # )
 
     if sim.tfsf is True:
         return qaaq_source(src, sim)
     else:
-        return source_value
+        return linesource(src, sim)
 
 
 # dict_src_init = {'PlaneWave': planewave_init}
@@ -53,14 +53,35 @@ def qaaq_source(src, sim: SimulationFdfd):
             axis=src.injection_axis
         )
 
+    mask = mask.squeeze()
+    f = make_wave(src, sim)
+
+    return _solve_QAAQ(src, sim, mask, f)
+
+
+# TODO: Why conj necessary ?
+def linesource(src, sim):
+    linesource_mask = np.zeros(sim.grid.num_cells, dtype=complex)
+    # indices = [slice(*val,1) for val in sim.grid.discretize_inds(src)]
+    indices = [np.arange(*val) for val in sim.grid.discretize_inds(src)]
+    # source_mask[*indices] = 1
+    idx, idy, idz = indices
+    linesource_mask[idx, idy, idz] = 1
+
+    f = make_wave(src, sim)
+
+    source_value = np.conj(f) * linesource_mask.squeeze() * np.exp(1j*PI/4)
+
+    return source_value
+
+
+def make_wave(src, sim):
     if sim.polarization == 'TE':
         coords_x = np.array(sim.grid.yee.E.z.x)
         coords_y = np.array(sim.grid.yee.E.z.y)
-        mask = mask.squeeze()
     elif sim.polarization == 'TM':
         coords_x = np.array(sim.grid.yee.H.z.x)
         coords_y = np.array(sim.grid.yee.H.z.y)
-        mask = mask.squeeze()
     else:
         raise NotImplementedError("Actually, only 2D is supported.")
 
@@ -72,14 +93,16 @@ def qaaq_source(src, sim: SimulationFdfd):
     else:
         fmag = src.amplitude * np.exp(1.j * src.phase)
 
-    k_x, k_y, _ = _calc_k_tfsf(src, sim)
+    k_x, k_y, _ = _calc_k(src, sim)
 
     xx, yy = np.meshgrid(coords_x, coords_y, indexing='ij')
-    f = fmag * np.exp(1.j * k_x * xx) * np.exp(1.j * k_y * yy)
-    return _solve_QAAQ(sim, src, mask, f)
+    f_wave = fmag * np.exp(1.j * k_x * xx) * np.exp(1.j * k_y * yy)
+
+    return f_wave
 
 
-def _solve_QAAQ(sim, src, Q, f):
+# TODO: Why conj necessary ?
+def _solve_QAAQ(src, sim, Q, f):
     Fdfd_obj = deepcopy(sim.handler.FdfdSim)
     eps = next(iter(sim.intersecting_media(src, sim.structures))).permittivity
     Fdfd_obj.eps = np.ones_like(Fdfd_obj.eps) * eps
@@ -90,13 +113,14 @@ def _solve_QAAQ(sim, src, Q, f):
 
     matQAAQ = sp_Q.dot(Fdfd_obj.A) - Fdfd_obj.A.dot(sp_Q)
     # Factor j / omega to keep the normalization
-    return -matQAAQ.dot(f.flatten()) * 1.j / (2 * PI * sim.freq0)
+    norm_factor = -1.j / (2 * PI * sim.freq0)
+    return matQAAQ.dot(np.conj(f).flatten()) * norm_factor
 
 
 # To make the TFSF working, it is necessary to use conj(bloch_conditions)
 # + to take a vector flipped by -1
 # No idea why actually...
-def _calc_k_tfsf(src, sim):
+def _calc_k(src, sim):
     # 'intersecting_media' returns a set -> We use an iterator to access the value
     eps = next(iter(sim.intersecting_media(src, sim.structures))).permittivity
 
@@ -115,14 +139,18 @@ def _calc_k_tfsf(src, sim):
         k_local = [
             0,
             0,
-            -kmag,
+            kmag,
         ]
     else:
         k_local = [
-            -kmag * np.sin(angle_theta) * np.cos(angle_phi),
-            -kmag * np.sin(angle_theta) * np.sin(angle_phi),
-            -kmag * np.cos(angle_theta),
+            kmag * np.sin(angle_theta) * np.cos(angle_phi),
+            kmag * np.sin(angle_theta) * np.sin(angle_phi),
+            kmag * np.cos(angle_theta),
         ]
+
+    # if tfsf:
+    #     k_local = [-x for x in k_local]
+
     k_global = src.unpop_axis(
         k_local[2], (k_local[0], k_local[1]), axis=src.injection_axis
     )

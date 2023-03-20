@@ -82,8 +82,8 @@ class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
                 )
             else:
                 bloch_phase.append(None)
-        if values['tfsf'] is True:
-            bloch_phase = [-val if val is not None else None for val in bloch_phase]
+        # TODO: Why conj necessary ? - Here, we need to flip the conditions
+        bloch_phase = [-val if val is not None else None for val in bloch_phase]
 
         values['handler'].params.bloch_conditions = tuple(bloch_phase)
         return values
