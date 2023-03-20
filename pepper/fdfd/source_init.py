@@ -59,7 +59,7 @@ def qaaq_source(src, sim: SimulationFdfd):
     return _solve_QAAQ(src, sim, mask, f)
 
 
-# TODO: Why conj necessary ?
+# TODO: Why conj necessary ? -> e^j(wt-kx)
 def linesource(src, sim):
     linesource_mask = np.zeros(sim.grid.num_cells, dtype=complex)
     # indices = [slice(*val,1) for val in sim.grid.discretize_inds(src)]
@@ -70,7 +70,7 @@ def linesource(src, sim):
 
     f = make_wave(src, sim)
 
-    source_value = np.conj(f) * linesource_mask.squeeze() * np.exp(1j*PI/4)
+    source_value = f * linesource_mask.squeeze()
 
     return source_value
 
@@ -96,12 +96,12 @@ def make_wave(src, sim):
     k_x, k_y, _ = _calc_k(src, sim)
 
     xx, yy = np.meshgrid(coords_x, coords_y, indexing='ij')
-    f_wave = fmag * np.exp(1.j * k_x * xx) * np.exp(1.j * k_y * yy)
+    f_wave = fmag * np.exp(-1.j * k_x * xx) * np.exp(-1.j * k_y * yy)
 
     return f_wave
 
 
-# TODO: Why conj necessary ?
+# TODO: Why conj necessary ? -> e^j(wt-kx)
 def _solve_QAAQ(src, sim, Q, f):
     Fdfd_obj = deepcopy(sim.handler.FdfdSim)
     eps = next(iter(sim.intersecting_media(src, sim.structures))).permittivity
@@ -112,14 +112,11 @@ def _solve_QAAQ(src, sim, Q, f):
                     dtype=complex)
 
     matQAAQ = sp_Q.dot(Fdfd_obj.A) - Fdfd_obj.A.dot(sp_Q)
-    # Factor j / omega to keep the normalization
+    # Factor -j / omega to keep the normalization
     norm_factor = -1.j / (2 * PI * sim.freq0)
-    return matQAAQ.dot(np.conj(f).flatten()) * norm_factor
+    return matQAAQ.dot(f.flatten()) * norm_factor
 
 
-# To make the TFSF working, it is necessary to use conj(bloch_conditions)
-# + to take a vector flipped by -1
-# No idea why actually...
 def _calc_k(src, sim):
     # 'intersecting_media' returns a set -> We use an iterator to access the value
     eps = next(iter(sim.intersecting_media(src, sim.structures))).permittivity
