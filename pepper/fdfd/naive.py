@@ -2,15 +2,14 @@ from abc import ABC
 from enum import Enum
 from functools import cached_property
 from math import prod
-from ..constants import C_0, EPS_0, MU_0, PI
-from ..derivatives import _calc_D_matrices
-from ..pml import _calc_S_matrices
 
 import numpy as np
 import scipy.sparse as sp
 
-# from tidy3d import Simulation as Tidy3dSim
-from pyMKL import pardisoSolver
+from ..constants import C_0, EPS_0, MU_0, PI
+from ..derivatives import _calc_D_matrices
+from ..pml import _calc_S_matrices
+from ..solver import linear_solve
 
 
 class SimulationType(Enum):
@@ -60,10 +59,7 @@ class BaseSimulationFdfd(ABC):
     def solve(self, source):
         self.source = source
 
-        pSolve = pardisoSolver(self.A.tocsr(), mtype=13)
-        pSolve.factor()
-        x = pSolve.solve(self.b)
-        pSolve.clear()
+        x = linear_solve(self.A.tocsr(), self.b)
         Field_zF = x
         # self.EzF = spsolve(self.A, self.b)
 
