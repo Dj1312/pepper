@@ -12,22 +12,20 @@ import matplotlib.pyplot as plt
 
 # TODO: Find a way to store the value of the source
 def planewave_init(src, sim: SimulationFdfd):
-    # source_value = np.zeros(sim.grid.num_cells, dtype=complex)
-    # inj_idx = src.injection_axis
-    # indices = sim.grid.discretize_inds(src)
-
-    # # Planewave propagate along ALL the window by definition
-    # fill_along_axis(
-    #     source_value,
-    #     value=src.amplitude * np.exp(1j * src.phase),
-    #     idx=indices[inj_idx], axis=inj_idx
-    # )
-
     if sim.tfsf is True:
         return qaaq_source(src, sim)
     else:
         return linesource(src, sim)
 
+def gaussianbeam_init(src, sim: SimulationFdfd):
+    if sim.polarization == 'TE':
+        _, coords = src.pop_axis(sim.discretize(src).yee.E.z.to_list, axis=src.injection_axis)
+    else:
+        raise NotImplementedError
+
+    ii, jj = np.meshgrid(*coords)
+    # REALLY USEFUL ??
+    src.unpop_axis(np.zeros_like(ii), (ii, jj), axis=src.injection_axis)
 
 # dict_src_init = {'PlaneWave': planewave_init}
 default_init = planewave_init
@@ -59,7 +57,7 @@ def qaaq_source(src, sim: SimulationFdfd):
     return _solve_QAAQ(src, sim, mask, f)
 
 
-# TODO: Why conj necessary ? -> e^j(wt-kx)
+# Why conj necessary ? -> e^j(wt-kx)
 def linesource(src, sim):
     linesource_mask = np.zeros(sim.grid.num_cells, dtype=complex)
     # indices = [slice(*val,1) for val in sim.grid.discretize_inds(src)]
@@ -101,7 +99,7 @@ def make_wave(src, sim):
     return f_wave
 
 
-# TODO: Why conj necessary ? -> e^j(wt-kx)
+# Why conj necessary ? -> e^j(wt-kx)
 def _solve_QAAQ(src, sim, Q, f):
     Fdfd_obj = deepcopy(sim.handler.FdfdSim)
     eps = next(iter(sim.intersecting_media(src, sim.structures))).permittivity
@@ -144,9 +142,6 @@ def _calc_k(src, sim):
             kmag * np.sin(angle_theta) * np.sin(angle_phi),
             kmag * np.cos(angle_theta),
         ]
-
-    # if tfsf:
-    #     k_local = [-x for x in k_local]
 
     k_global = src.unpop_axis(
         k_local[2], (k_local[0], k_local[1]), axis=src.injection_axis
