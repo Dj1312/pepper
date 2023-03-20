@@ -24,6 +24,8 @@ def _calc_D_matrices(
     if periodicity_correction[0] is None:
         _Dxf = _calc_Dxf(dl, shape, periodic_phase=0.0)
         _Dxb = _calc_Dxb(dl, shape, periodic_phase=0.0)
+        # _Dxf = _calc_Dxf(dl, shape, periodic_phase=None)
+        # _Dxb = _calc_Dxb(dl, shape, periodic_phase=None)
     else:
         _Dxf = _calc_Dxf(dl, shape, periodic_phase=periodicity_correction[0])
         _Dxb = _calc_Dxb(dl, shape, periodic_phase=periodicity_correction[0])
@@ -31,14 +33,11 @@ def _calc_D_matrices(
     if periodicity_correction[1] is None:
         _Dyf = _calc_Dyf(dl, shape, periodic_phase=0.0)
         _Dyb = _calc_Dyb(dl, shape, periodic_phase=0.0)
+        # _Dyf = _calc_Dyf(dl, shape, periodic_phase=None)
+        # _Dyb = _calc_Dyb(dl, shape, periodic_phase=None)
     else:
         _Dyf = _calc_Dyf(dl, shape, periodic_phase=periodicity_correction[1])
         _Dyb = _calc_Dyb(dl, shape, periodic_phase=periodicity_correction[1])
-
-    # _Dxf = _calc_Dxf(dl, shape, periodic_phase=None)
-    # _Dxb = _calc_Dxb(dl, shape, periodic_phase=None)
-    # _Dyf = _calc_Dyf(dl, shape, periodic_phase=None)
-    # _Dyb = _calc_Dyb(dl, shape, periodic_phase=None)
 
     return _Dxf, _Dxb, _Dyf, _Dyb
 
