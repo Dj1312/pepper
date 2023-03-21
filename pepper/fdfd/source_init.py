@@ -12,14 +12,14 @@ def planewave_init(src, sim: SimulationFdfd):
     if sim.tfsf is True:
         return qaaq_source(linesource(src, sim), src, sim)
     else:
-        return linesource(src, sim)
+        return linesource(src, sim) * calc_phase(src, sim)
 
 
 def gaussianbeam_init(src, sim: SimulationFdfd):
     if sim.tfsf is True:
         return qaaq_source(gaussian_beam(src, sim), src, sim)
     else:
-        return gaussian_beam(src, sim)
+        return gaussian_beam(src, sim) * calc_phase(src, sim)
 
 
 def gaussian_beam(src, sim: SimulationFdfd):
@@ -64,6 +64,7 @@ def gaussian_beam(src, sim: SimulationFdfd):
 
     source_value = np.zeros(sim.grid.num_cells, dtype=complex)
     indices = [np.arange(*val) for val in sim.grid.discretize_inds(src)]
+
     source_value[np.ix_(*indices)] = fmag * beam
 
     return source_value
