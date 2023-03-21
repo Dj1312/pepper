@@ -12,10 +12,9 @@ import tidy3d.components.boundary as td_bnd
 
 from .base import BaseSimulationFdfd, SimulationFdfd_TE, SimulationFdfd_TM
 from ..cache import cached_property
-from ..constants import PI
+from ..constants import PI, MICROMETERS
 
 
-MICROMETERS = 1e-6
 DUMMY_VALUE = -1
 PMLLikeBoundary = [td_bnd.PML, td_bnd.StablePML, td_bnd.Absorber]
 
@@ -82,7 +81,7 @@ class SimulationFdfd(Tidy3dSim, extra=Extra.ignore):
                 )
             else:
                 bloch_phase.append(None)
-        # TODO: Why conj necessary ? - Here, we need to flip the conditions
+        # From Rumpf, we need exp(-j*k*L)
         bloch_phase = [-val if val is not None else None for val in bloch_phase]
 
         values['handler'].params.bloch_conditions = tuple(bloch_phase)
