@@ -3,7 +3,7 @@ import numpy as np
 import scipy.sparse as sp
 
 from .simulation import SimulationFdfd
-from ..constants import EPS_0, MU_0, PI
+from ..constants import EPS_0, MU_0, PI, MICROMETERS
 from ..utils import fill_along_axis
 
 
@@ -13,26 +13,128 @@ import matplotlib.pyplot as plt
 # TODO: Find a way to store the value of the source
 def planewave_init(src, sim: SimulationFdfd):
     if sim.tfsf is True:
-        return qaaq_source(src, sim)
+        return qaaq_src(src, sim)
     else:
         return linesource(src, sim)
 
 def gaussianbeam_init(src, sim: SimulationFdfd):
+    if sim.tfsf is True:
+        return qaaq_source(gaussian_beam(src, sim), src, sim)
+    else:
+        return gaussian_beam(src, sim)
+
+
+def qaaq_source(src_value, src, sim: SimulationFdfd):
+    num_cell_axis, num_cells_src = src.pop_axis(sim.grid.num_cells, axis=src.injection_axis)
+    _, coords_src = src.pop_axis(sim.discretize(src).yee.E.z.to_list, axis=src.injection_axis)
+    _, idx_src = src.pop_axis(sim.grid.discretize_inds(src), axis=src.injection_axis)
+
+    src_slice = np.zeros(num_cells_src, dtype=complex)
+    idx_slice_3d = [np.arange(*val) for val in sim.grid.discretize_inds(src)]
+    idx_slice_2d = [np.arange(*val) for val in idx_src]
+    # src_slice[np.ix_(*[np.arange(*val) for val in idx_src])] = src_value[np._ix(*idx_slice_3d)]
+    src_slice[np.ix_(*idx_slice_2d)] = src_value[np.ix_(*idx_slice_3d)]
+    # After having a slice, the source can be extended on the full window
+    src_extended = np.moveaxis(
+        np.stack([src_slice] * num_cell_axis), source=0, destination=src.injection_axis)
+
+    plt.plot(np.abs(src_slice))
+    plt.show();
+
+    # plt.imshow(np.abs(src_extended)[:,100,:])
+    plt.imshow(np.abs(src_extended))
+    plt.show();
+
+def gaussian_beam(src, sim: SimulationFdfd):
     if sim.polarization == 'TE':
         _, coords = src.pop_axis(sim.discretize(src).yee.E.z.to_list, axis=src.injection_axis)
+    elif sim.polarization == 'TM':
+        _, coords = src.pop_axis(sim.discretize(src).yee.H.z.to_list, axis=src.injection_axis)
     else:
-        raise NotImplementedError
+        raise NotImplementedError("Actually, only 2D is supported.")
+    _, center = src.pop_axis(src.center, axis=src.injection_axis)
+    # Centering the coords
+    coords = [coords[i] - center[i] for i in range(len(center))]
 
-    ii, jj = np.meshgrid(*coords)
-    # REALLY USEFUL ??
-    src.unpop_axis(np.zeros_like(ii), (ii, jj), axis=src.injection_axis)
+    ii, jj = np.meshgrid(*coords, indexing='ij')
+    r2 = ii**2 + jj**2
+    # # REALLY USEFUL ??
+    # src.unpop_axis(np.zeros_like(ii), (ii, jj), axis=src.injection_axis)
+    # GaussianBeam parameters
+    w0 = src.waist_radius
+    z = src.waist_distance
 
-# dict_src_init = {'PlaneWave': planewave_init}
-default_init = planewave_init
-dict_src_init = default_init
+    z0 = PI * src.waist_radius**2 / sim.wavelength
+    w = w0 * np.sqrt(1 + (z / z0)**2)
+
+    beam = w0 / w * np.exp(-r2 / (w**2))
+
+    # Avoid rounding issue
+    if z != 0.0:
+        eps = next(iter(sim.intersecting_media(src, sim.structures))).permittivity
+        k = 2 * PI / sim.wavelength * np.sqrt(eps)
+        gouy = np.arctan(z / z0)
+        r_curvature = z * (1 + (z0 / z)**2)
+        add_phase = np.exp(-1.j * (
+            k * z * MICROMETERS + k * r2 / (2 * r_curvature) - gouy
+        ))
+        beam = beam * add_phase
+
+    source_value = np.zeros(sim.grid.num_cells, dtype=complex)
+    indices = [np.arange(*val) for val in sim.grid.discretize_inds(src)]
+    # source_value[*indices] = beam
+
+    idx, idy, idz = indices
+    source_value[np.ix_(*indices)] = beam
+
+    return source_value
 
 
-def qaaq_source(src, sim: SimulationFdfd):
+# def gaussianbeam_init(src, sim: SimulationFdfd):
+#     if sim.polarization == 'TE':
+#         _, coords = src.pop_axis(sim.discretize(src).yee.E.z.to_list, axis=src.injection_axis)
+#     elif sim.polarization == 'TM':
+#         _, coords = src.pop_axis(sim.discretize(src).yee.H.z.to_list, axis=src.injection_axis)
+#     else:
+#         raise NotImplementedError("Actually, only 2D is supported.")
+#     _, center = src.pop_axis(src.center, axis=src.injection_axis)
+#     # Centering the coords
+#     coords = [coords[i] - center[i] for i in range(len(center))]
+
+#     ii, jj = np.meshgrid(*coords)
+#     r2 = ii**2 + jj**2
+#     # # REALLY USEFUL ??
+#     # src.unpop_axis(np.zeros_like(ii), (ii, jj), axis=src.injection_axis)
+#     # GaussianBeam parameters
+#     w0 = src.waist_radius
+#     z = src.waist_distance
+
+#     z0 = PI * src.waist_radius**2 / sim.wavelength
+#     w = w0 * np.sqrt(1 + (z / z0)**2)
+
+#     beam = w0 / w * np.exp(-r2 / (w**2))
+
+#     # Avoid rounding issue
+#     if z != 0.0:
+#         eps = next(iter(sim.intersecting_media(src, sim.structures))).permittivity
+#         k = 2 * PI / sim.wavelength * np.sqrt(eps)
+#         gouy = np.arctan(z / z0)
+#         r_curvature = z * (1 + (z0 / z)**2)
+#         add_phase = np.exp(-1.j * (
+#             k * z * MICROMETERS + k * r2 / (2 * r_curvature) - gouy
+#         ))
+#         beam = beam * add_phase
+
+#     source_value = np.zeros(sim.grid.num_cells, dtype=complex)
+#     indices = [np.arange(*val) for val in sim.grid.discretize_inds(src)]
+#     # source_value[*indices] = beam
+#     idx, idy, idz = indices
+#     source_value[idx, idy, idz] = beam
+
+#     return source_value
+
+
+def qaaq_src(src, sim: SimulationFdfd):
     mask = np.ones(sim.grid.num_cells, dtype=complex)
 
     if src.direction == '+':
@@ -54,7 +156,7 @@ def qaaq_source(src, sim: SimulationFdfd):
     mask = mask.squeeze()
     f = make_wave(src, sim)
 
-    return _solve_QAAQ(src, sim, mask, f)
+    return _get_QAAQ(src, sim, mask, f)
 
 
 # Why conj necessary ? -> e^j(wt-kx)
@@ -86,7 +188,8 @@ def make_wave(src, sim):
     coords_x = coords_x - src.center[0]
     coords_y = coords_y - src.center[1]
 
-    if src.phase == 0:
+    # Avoid rounding issue
+    if src.phase == 0.0:
         fmag = src.amplitude
     else:
         fmag = src.amplitude * np.exp(1.j * src.phase)
@@ -100,7 +203,7 @@ def make_wave(src, sim):
 
 
 # Why conj necessary ? -> e^j(wt-kx)
-def _solve_QAAQ(src, sim, Q, f):
+def _get_QAAQ(src, sim, Q, f):
     Fdfd_obj = deepcopy(sim.handler.FdfdSim)
     eps = next(iter(sim.intersecting_media(src, sim.structures))).permittivity
     Fdfd_obj.eps = np.ones_like(Fdfd_obj.eps) * eps
@@ -130,7 +233,7 @@ def _calc_k(src, sim):
     if src.direction == "-":
         angle_theta += PI
 
-    if angle_theta == 0:
+    if angle_theta == 0.0:
         k_local = [
             0,
             0,
@@ -148,3 +251,11 @@ def _calc_k(src, sim):
     )
 
     return k_global
+
+
+dict_src_init = {
+    'PlaneWave': planewave_init,
+    'UniformCurrentSource': linesource,
+    # 'PointDipole': point_dipole_init,
+    'GaussianBeam': gaussianbeam_init,
+}

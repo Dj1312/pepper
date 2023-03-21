@@ -50,7 +50,7 @@ def _tidy3d_fdfd_monkey_patch(Tidy3DClass):
             freq0=freq0,
             wavelength=wavelength,
             simulation_type=SimulationType.FDFD,
-            source_initialization=dict_src_init,  # [Tidy3DClass.__name__],
+            source_initialization=dict_src_init[Tidy3DClass.__name__],
             **additional_fdfd_fields,
         )
         # used to solve the issue with the TypeError on 3.9.X
